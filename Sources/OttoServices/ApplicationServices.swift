@@ -590,6 +590,7 @@ public final class ApplicationServices: ObservableObject {
       try await registerOfficeTools()
       try await registerProfileTools()
       try await registerKnowledgeTools()
+      try await registerNylasTools()
       botPresence.start()
       botActivity.start(eventBus: supervisor.eventBus)
       startBotEventProjection()

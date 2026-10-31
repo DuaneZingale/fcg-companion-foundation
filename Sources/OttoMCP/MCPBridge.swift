@@ -103,22 +103,7 @@ public struct MCPBridge: Sendable {
       // Permission approvals and user questions block on a human decision in the Otto app, so
       // these calls get an hour-scale read timeout instead of the control plane's ten-second
       // default.
-      let timeoutMilliseconds: Int32? =
-        switch name {
-        case AgentPermissionPrompt.toolName: AgentPermissionPrompt.responseTimeoutMilliseconds
-        case AgentUserChoicePrompt.toolName: AgentUserChoicePrompt.responseTimeoutMilliseconds
-        case "browser.account"
-        where ["request_login", "click"].contains(arguments["action"]?.stringValue ?? ""):
-          // These operations include native approval and private human sign-in. A ten-second
-          // timeout can abandon a still-live request and provoke an unsafe retry by the caller.
-          AgentPermissionPrompt.responseTimeoutMilliseconds
-        case "event.wait", "terminal.wait":
-          // These tools deliberately park the control request. Give the socket slightly longer
-          // than the requested wait so the tool can return a typed timeout observation rather
-          // than the bridge severing the request at its normal ten-second deadline.
-          Int32(min((arguments["timeoutMilliseconds"]?.numberValue ?? 30_000) + 5_000, 35_000))
-        default: nil
-        }
+      let timeoutMilliseconds = Self.toolTimeoutMilliseconds(name: name, arguments: arguments)
       do {
         let output = try callWithConfirmation(
           name: name,
@@ -168,6 +153,25 @@ public struct MCPBridge: Sendable {
     guard let definitions = try? client.listTools() else { return name }
     if definitions.contains(where: { $0.name == name }) { return name }
     return definitions.first { Self.mcpSanitized($0.name) == name }?.name ?? name
+  }
+
+  /// Keep transport deadlines longer than the bounded operation they carry.
+  static func toolTimeoutMilliseconds(name: String, arguments: JSONValue) -> Int32? {
+    switch name {
+    case AgentPermissionPrompt.toolName: return AgentPermissionPrompt.responseTimeoutMilliseconds
+    case AgentUserChoicePrompt.toolName: return AgentUserChoicePrompt.responseTimeoutMilliseconds
+    case "browser.account" where ["request_login", "click"].contains(arguments["action"]?.stringValue ?? ""):
+      return AgentPermissionPrompt.responseTimeoutMilliseconds
+    case "event.wait", "terminal.wait":
+      return Int32(min((arguments["timeoutMilliseconds"]?.numberValue ?? 30_000) + 5_000, 35_000))
+    case "nylas.accounts", "nylas.search", "nylas.read", "nylas.folders", "nylas.drafts",
+      "nylas.sort", "nylas.draft", "nylas.send", "nylas.delete_permanently":
+      // One private credential load, bounded grant pagination, and provider read/write/readback
+      // can exceed ten seconds. Do not abandon an in-flight write and invite duplicate retries.
+      // Each provider request has a 30-second resource deadline; this covers the bounded chain.
+      return 600_000
+    default: return nil
+    }
   }
 
   /// Some Otto tools can only classify whether an action is consequential after inspecting the

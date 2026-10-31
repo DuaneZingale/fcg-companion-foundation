@@ -95,6 +95,15 @@ public struct AgentRequestPermissionTool: OttoTool {
       return .deny(message: "Otto could not identify the agent requesting permission")
     }
     var detail = Self.detail(toolName: input.toolName, input: input.input)
+    if input.toolName == "nylas.delete_permanently" {
+      guard case .object(let object)? = input.input else {
+        return .deny(message: "Could not identify the email to delete")
+      }
+      if let refusal = NylasDeleteApprovalSummary.refusal(input: object) {
+        return .deny(message: refusal)
+      }
+      detail = NylasDeleteApprovalSummary.text(input: object)
+    }
     if input.toolName == "terminal.run" {
       guard case .object(let object)? = input.input else {
         return .deny(message: "Otto could not read the terminal command to approve")
@@ -139,7 +148,8 @@ public struct AgentRequestPermissionTool: OttoTool {
         // Dotted Otto tools are app confirmations; the supervisor also applies tool bypass
         // to browser.click, while account access and other app confirmations stay explicit.
         isProviderPermission: !input.toolName.contains("."),
-        detailLimit: input.toolName == "terminal.run"
+        detailLimit: input.toolName == "nylas.delete_permanently" ? NylasDeleteApprovalSummary.limit
+          : input.toolName == "terminal.run"
           ? TerminalCommandApprovalSummary.limit
           : EmailApprovalSummary.tools.contains(input.toolName) ? EmailApprovalSummary.limit : 240
       )
@@ -208,13 +218,13 @@ public enum TerminalCommandApprovalSummary {
 /// whole body, so the person approves exactly the message that is sent. A message too long to
 /// show in full is refused rather than shown in part.
 public enum EmailApprovalSummary {
-  public static let tools: Set<String> = ["gmail.send", "gmail.reply", "smtp.send"]
+  public static let tools: Set<String> = ["gmail.send", "gmail.reply", "smtp.send", "nylas.send"]
   /// The longest body the card shows; longer ones are refused.
   public static let bodyLimit = 20_000
   /// Recipient and subject are short in any mail Otto sends; longer ones are refused too.
   static let headerLimit = 1_000
   /// The whole card: the headers, notes about the thread and recipient, and the body.
-  public static let limit = bodyLimit + 4 * headerLimit
+  public static let limit = bodyLimit + 8 * headerLimit
 
   /// Who the message being answered came from, as Otto read it from the mail itself.
   public struct Original: Equatable, Sendable {
@@ -246,8 +256,15 @@ public enum EmailApprovalSummary {
     }) {
       return "This email contains control characters Otto cannot show for approval. Remove them."
     }
-    for field in ["to", "subject"] where (input[field]?.stringValue?.count ?? 0) > headerLimit {
-      return "This email's \(field) is too long to approve."
+    for field in ["account", "to", "cc", "bcc", "subject", "replyToMessageID"] {
+      let value = input[field]?.stringValue ?? ""
+      if value.count > headerLimit { return "This email's \(field) is too long to approve." }
+      if value.unicodeScalars.contains(where: { $0.properties.generalCategory == .control || $0.properties.generalCategory == .format }) {
+        return "This email's \(field) contains characters Otto cannot show faithfully."
+      }
+    }
+    if body.unicodeScalars.contains(where: { $0.properties.generalCategory == .format }) {
+      return "This email contains hidden formatting characters Otto cannot show faithfully."
     }
     return nil
   }
@@ -260,6 +277,12 @@ public enum EmailApprovalSummary {
     let subject = input["subject"]?.stringValue ?? "(no subject)"
     let body = (input["body"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     var lines = ["Send email to \(to)", "Subject: \(subject)"]
+    if toolName == "nylas.send" {
+      lines.insert("From inbox: \(input["account"]?.stringValue ?? "(missing)")", at: 0)
+      lines.append("CC: \(input["cc"]?.stringValue ?? "(none)")")
+      lines.append("BCC: \(input["bcc"]?.stringValue ?? "(none)")")
+      if let reply = input["replyToMessageID"]?.stringValue { lines.append("Reply to message: \(reply)") }
+    }
     if toolName == "gmail.reply" || input["inReplyTo"]?.stringValue != nil {
       lines.append("Reply in the original thread")
     }
@@ -285,6 +308,23 @@ public enum EmailApprovalSummary {
       trimmed = Substring(header)
     }
     return trimmed.trimmingCharacters(in: .whitespaces).lowercased()
+  }
+}
+
+public enum NylasDeleteApprovalSummary {
+  public static let limit = 4_000
+  public static func refusal(input: [String: JSONValue]) -> String? {
+    for key in ["account", "messageID", "expectedSubject"] {
+      guard let value = input[key]?.stringValue, value.count <= 1_000,
+        key == "expectedSubject" || !value.isEmpty,
+        !value.unicodeScalars.contains(where: {
+          $0.properties.generalCategory == .control || $0.properties.generalCategory == .format
+        }) else { return "Cannot display the exact email target for permanent deletion." }
+    }
+    return nil
+  }
+  public static func text(input: [String: JSONValue]) -> String {
+    "PERMANENTLY DELETE ONE EMAIL — cannot be undone.\nInbox: \(input["account"]?.stringValue ?? "")\nMessage ID: \(input["messageID"]?.stringValue ?? "")\nSubject: \(input["expectedSubject"]?.stringValue ?? "")"
   }
 }
 
