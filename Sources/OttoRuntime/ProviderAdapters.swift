@@ -127,17 +127,13 @@ public struct ClaudeCodeAdapter: AgentAdapter {
       let mcpConfig = Self.mcpConfigJSON(
         command: mcpExecutable, environment: request.controlEnvironment)
     {
-      // Otto confirms its own consequential tools (smtp.send, gmail.send, ...) through its
-      // permission card, so Claude need not ask again for exactly those. Every other Otto tool
-      // (terminal.open, agent.spawn, ...) stays behind Claude's prompt. Read-only bots keep
-      // Claude's plan-mode prompts. The variadic flag sits before another flag so it cannot
-      // swallow the trailing positional prompt.
-      if request.permissionMode == .workspaceWrite, !request.ottoSelfConfirmingTools.isEmpty {
-        arguments += [
-          "--allowedTools",
-          request.ottoSelfConfirmingTools.map(OttoMCPRegistration.claudeToolName).joined(
-            separator: ","),
-        ]
+      // Reads need no approval. Consequential tools retain Otto's own confirmation card.
+      // Never grant the whole server, which also exposes unguarded command execution.
+      let allowed = Array(Set(request.ottoReadOnlyTools +
+        (request.permissionMode == .readOnly ? [] : request.ottoSelfConfirmingTools))).sorted()
+      if !allowed.isEmpty {
+        arguments += ["--allowedTools", allowed.map(OttoMCPRegistration.claudeToolName)
+          .joined(separator: ",")]
       }
       arguments += ["--mcp-config", mcpConfig]
       // One appended system prompt carries both the workspace guidance and, when the memory layer
@@ -542,13 +538,12 @@ public struct CodexAdapter: AgentAdapter {
     // agent.ask_user and permission approvals block on a human answer, so the otto server's
     // tool timeout must be hour-scale rather than Codex's default of about a minute.
     arguments += ["--config", "mcp_servers.otto.tool_timeout_sec=3600"]
-    // Otto confirms its own consequential tools (smtp.send, gmail.send, ...) through the in-chat
-    // permission card. Without this, non-interactive Codex runs refuse those calls outright
-    // ("requires approval, but approval policy is never") before Otto can ask. Only those tools
-    // are pre-approved, keyed by their raw MCP name; every other Otto tool keeps Codex's own
-    // approval policy, and read-only runs pre-approve nothing.
-    if request.permissionMode != .readOnly, !request.ottoSelfConfirmingTools.isEmpty {
-      let entries = request.ottoSelfConfirmingTools.map { name in
+    // Non-interactive Codex otherwise rejects even reads before the app receives them.
+    // Grant individual reads plus tools guarded by Otto's own confirmation, never all tools.
+    let allowed = Array(Set(request.ottoReadOnlyTools +
+      (request.permissionMode == .readOnly ? [] : request.ottoSelfConfirmingTools))).sorted()
+    if !allowed.isEmpty {
+      let entries = allowed.map { name in
         "\"\(tomlEscaped(name))\"={approval_mode=\"approve\"}"
       }
       arguments += ["--config", "mcp_servers.otto.tools={\(entries.joined(separator: ","))}"]

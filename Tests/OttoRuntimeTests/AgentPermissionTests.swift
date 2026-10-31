@@ -204,7 +204,7 @@ struct AgentPermissionTests {
         ottoSelfConfirmingTools: ["smtp.send", "calendar.create_event"]
       ))
     let index = try #require(spec.arguments.firstIndex(of: "--allowedTools"))
-    #expect(spec.arguments[index + 1] == "mcp__otto__smtp_send,mcp__otto__calendar_create_event")
+    #expect(spec.arguments[index + 1] == "mcp__otto__calendar_create_event,mcp__otto__smtp_send")
     // A server-wide grant would let terminal.open, agent.spawn, ... skip every prompt.
     #expect(!spec.arguments.contains("mcp__otto"))
     #expect(!spec.arguments[index + 1].contains("terminal_run"))
@@ -269,8 +269,8 @@ struct AgentPermissionTests {
       ))
     #expect(
       spec.arguments.contains(
-        "mcp_servers.otto.tools={\"smtp.send\"={approval_mode=\"approve\"},"
-          + "\"gmail.send\"={approval_mode=\"approve\"}}"))
+        "mcp_servers.otto.tools={\"gmail.send\"={approval_mode=\"approve\"},"
+          + "\"smtp.send\"={approval_mode=\"approve\"}}"))
     #expect(!spec.arguments.contains { $0.contains("default_tools_approval_mode") })
     // Tools absent from the self-confirming list keep Codex's own approval policy.
     #expect(

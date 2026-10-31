@@ -1101,7 +1101,7 @@ public struct WorkspaceSurfaceSetTool: OttoTool {
     ),
     outputSchema: .object(["type": .string("object")]),
     requiredScopes: [.canvasRead],
-    riskLevel: .read
+    riskLevel: .reversible
   )
   private let store: CanvasStore
   public init(store: CanvasStore) { self.store = store }

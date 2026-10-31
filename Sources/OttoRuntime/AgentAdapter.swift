@@ -265,6 +265,8 @@ public struct AgentLaunchRequest: Sendable, Equatable {
   /// the provider level to avoid a second prompt. Never the whole server: tools such as
   /// `terminal.open` carry no Otto card and must stay behind the provider's own approval.
   public var ottoSelfConfirmingTools: [String]
+  /// Read-only registry tools may run without a provider approval in every permission mode.
+  public var ottoReadOnlyTools: [String]
   /// Otto's own workspace, where Otto stages chat attachments. Nil, or equal to `workspacePath`,
   /// when the run starts there; otherwise the run starts in a project's source folder.
   public var ottoWorkspacePath: String?
@@ -291,6 +293,7 @@ public struct AgentLaunchRequest: Sendable, Equatable {
     ottoMCPExecutable: String? = nil,
     controlEnvironment: [String: String] = [:],
     ottoSelfConfirmingTools: [String] = [],
+    ottoReadOnlyTools: [String] = [],
     ottoWorkspacePath: String? = nil,
     profileInstructions: String? = nil,
     memoryBootstrap: String? = nil
@@ -305,6 +308,7 @@ public struct AgentLaunchRequest: Sendable, Equatable {
     self.ottoMCPExecutable = ottoMCPExecutable
     self.controlEnvironment = controlEnvironment
     self.ottoSelfConfirmingTools = ottoSelfConfirmingTools
+    self.ottoReadOnlyTools = ottoReadOnlyTools
     self.ottoWorkspacePath = ottoWorkspacePath
     self.profileInstructions = profileInstructions
     self.memoryBootstrap = memoryBootstrap
@@ -357,6 +361,7 @@ public struct AgentControlPlane: Sendable {
   /// Registry names of the tools Otto confirms with its own card; copied into every launch
   /// request as `AgentLaunchRequest.ottoSelfConfirmingTools`.
   public var selfConfirmingTools: [String]
+  public var readOnlyTools: [String]
   /// Otto's own workspace. Otto keeps its per-run files (bootstrap copies, chat images) here even
   /// when a session starts in a project's source folder, so it never writes into that folder.
   public var workspacePath: String?
@@ -364,12 +369,13 @@ public struct AgentControlPlane: Sendable {
 
   public init(
     socketPath: String, token: String, mcpExecutable: String?, workspaceID: UUID,
-    selfConfirmingTools: [String] = [], workspacePath: String? = nil
+    selfConfirmingTools: [String] = [], readOnlyTools: [String] = [], workspacePath: String? = nil
   ) {
     self.socketPath = socketPath
     self.mcpExecutable = mcpExecutable
     self.workspaceID = workspaceID
     self.selfConfirmingTools = selfConfirmingTools
+    self.readOnlyTools = readOnlyTools
     self.workspacePath = workspacePath
     self.tokenProvider = { _, _ in token }
   }
@@ -379,6 +385,7 @@ public struct AgentControlPlane: Sendable {
     mcpExecutable: String?,
     workspaceID: UUID,
     selfConfirmingTools: [String] = [],
+    readOnlyTools: [String] = [],
     workspacePath: String? = nil,
     tokenProvider: @escaping @Sendable (UUID, UUID?) async -> String
   ) {
@@ -386,6 +393,7 @@ public struct AgentControlPlane: Sendable {
     self.mcpExecutable = mcpExecutable
     self.workspaceID = workspaceID
     self.selfConfirmingTools = selfConfirmingTools
+    self.readOnlyTools = readOnlyTools
     self.workspacePath = workspacePath
     self.tokenProvider = tokenProvider
   }

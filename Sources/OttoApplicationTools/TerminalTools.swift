@@ -218,12 +218,11 @@ public struct TerminalSendInputTool: OttoTool {
 public struct TerminalReadOutputTool: OttoTool {
   public static let definition = ToolDefinition(
     name: "terminal.read_output",
-    description: "Asks for approval, then reads bounded output and process state from a terminal node.",
+    description: "Reads bounded output and process state from an existing terminal without another approval.",
     inputSchema: terminalIDSchema(),
     outputSchema: .object(["type": .string("object")]),
     requiredScopes: [.canvasRead],
-    riskLevel: .read,
-    requiresConfirmation: true
+    riskLevel: .read
   )
   private let supervisor: AgentSupervisor
   public init(supervisor: AgentSupervisor) { self.supervisor = supervisor }
@@ -238,7 +237,7 @@ public struct TerminalWaitTool: OttoTool {
   public static let definition = ToolDefinition(
     name: "terminal.wait",
     description:
-      "Asks for approval to read output, then waits without polling for an Otto-supervised terminal command to finish. Returns "
+      "Waits without polling or another approval for an Otto-supervised terminal command to finish. Returns "
       + "immediately when it is already finished, early with waitingForUser=true when the command "
       + "starts waiting for the person to answer a prompt in the terminal (tell them where it is "
       + "and what to do, then wait again), or with its current state and bounded output when the "
@@ -257,8 +256,7 @@ public struct TerminalWaitTool: OttoTool {
     ),
     outputSchema: .object(["type": .string("object")]),
     requiredScopes: [.terminalControl],
-    riskLevel: .read,
-    requiresConfirmation: true
+    riskLevel: .read
   )
 
   private let supervisor: AgentSupervisor

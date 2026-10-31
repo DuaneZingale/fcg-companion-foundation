@@ -136,26 +136,20 @@ struct PermissionPromptToolTests {
         (step == 0 ? "" : "executed\n"))
     }
     let terminalID = try #require(approvedTerminalID)
+    // Reading the result of an approved command never asks again.
     for name in ["terminal.wait", "terminal.read_output"] {
-      for approve in [false, true] {
-        let bridge = MCPBridge(client: ControlClient(socketPath: server.socketPath, token: token))
-        let response = Task {
-          try await onDedicatedThread {
-            try bridge.handle(MCPRequest(
-              id: .number(8), method: "tools/call",
-              params: .object(["name": .string(name), "arguments": .object([
-                "terminalID": .string(terminalID.uuidString)])])))
-          }
-        }
-        try await waitForState(.waitingPermission, id: agentID, supervisor: supervisor)
-        #expect(try await supervisor.snapshot(agentID: agentID).attentionReason?.contains(terminalID.uuidString) == true)
-        try await supervisor.resolvePermission(agentID: agentID, approved: approve)
-        let result = try await response.value
-        #expect(result.result?["isError"] == .bool(!approve))
-        if case .array(let content)? = result.result?["content"] {
-          #expect(content.first?["text"]?.stringValue?.contains("approved-output") == approve)
-        } else { Issue.record("Missing output decision result") }
+      let bridge = MCPBridge(client: ControlClient(socketPath: server.socketPath, token: token))
+      let result = try await onDedicatedThread {
+        try bridge.handle(MCPRequest(
+          id: .number(8), method: "tools/call",
+          params: .object(["name": .string(name), "arguments": .object([
+            "terminalID": .string(terminalID.uuidString)])])))
       }
+      #expect(result.result?["isError"] == .bool(false))
+      #expect(await !supervisor.hasPendingPermission(agentID: agentID))
+      if case .array(let content)? = result.result?["content"] {
+        #expect(content.first?["text"]?.stringValue?.contains("approved-output") == true)
+      } else { Issue.record("Missing command output") }
     }
     await supervisor.stopAll()
   }
@@ -191,17 +185,24 @@ struct PermissionPromptToolTests {
     let guarded = [TerminalRunTool.definition, TerminalWaitTool.definition,
       TerminalReadOutputTool.definition, TerminalOpenTool.definition]
       .filter(\.requiresConfirmation).map(\.name)
-    #expect(guarded == ["terminal.run", "terminal.wait", "terminal.read_output"])
+    #expect(guarded == ["terminal.run"])
+    let reads = [TerminalWaitTool.definition, TerminalReadOutputTool.definition, KnowledgeReadTool.definition]
+      .filter(\.allowsUnpromptedRead).map(\.name)
     for readOnly in [false, true] {
       let request = AgentLaunchRequest(
         workspacePath: FileManager.default.currentDirectoryPath, prompt: "Read knowledge",
         permissionMode: readOnly ? .readOnly : .workspaceWrite,
-        ottoMCPExecutable: "/usr/local/bin/otto-mcp", ottoSelfConfirmingTools: guarded)
+        ottoMCPExecutable: "/usr/local/bin/otto-mcp", ottoSelfConfirmingTools: guarded,
+        ottoReadOnlyTools: reads)
       let codex = try await CodexAdapter(executablePath: "/bin/echo").buildLaunchSpec(request)
       let claude = try await ClaudeCodeAdapter(executablePath: "/bin/echo").buildLaunchSpec(request)
       for name in guarded {
         #expect(codex.arguments.contains { $0.contains("\"\(name)\"={approval_mode=\"approve\"}") } == !readOnly)
         #expect(claude.arguments.contains { $0.contains("mcp__otto__" + name.replacingOccurrences(of: ".", with: "_")) } == !readOnly)
+      }
+      for name in reads {
+        #expect(codex.arguments.contains { $0.contains("\"\(name)\"={approval_mode=\"approve\"}") })
+        #expect(claude.arguments.contains { $0.contains("mcp__otto__" + name.replacingOccurrences(of: ".", with: "_")) })
       }
       #expect(!codex.arguments.contains { $0.contains("default_tools_approval_mode") })
       #expect(!claude.arguments.contains("mcp__otto"))

@@ -3,9 +3,9 @@
 This fork evaluates Otto as the desktop conversation and agent runtime for Companion OS.
 The existing Companion OS repository, applications, databases and services stay in place.
 
-Current local status (2026-10-31): both companions have completed live knowledge reads through
-explicit in-app approvals. See the approval integration result below; the first pilot's blocker
-is retained as historical evidence.
+Current local policy (2026-10-31): knowledge reads and result retrieval require no approval.
+Write safeguards remain distinct from the host Codex Full Access setting. Earlier pilot
+results below are historical; see the unprompted read integration for the current behavior.
 
 ## Baseline
 
@@ -81,7 +81,7 @@ Session IDs, source snapshots and detailed receipts stay in the private local ev
 The next integration task is an approval-preserving knowledge connection; profile snapshots
 must not be described as live retrieval. Upstream UI labels and app-level storage paths remain.
 
-## Approval integration result — 2026-10-31
+## Earlier approval integration result — 2026-10-31
 
 `terminal.run`, `terminal.wait` and `terminal.read_output` now require Otto confirmation.
 The existing provider adapters hand off only these individually guarded tools to Otto; there
@@ -110,3 +110,51 @@ Fenwick retains his original Claude session and provider configuration.
 
 The installed build, rollback bundles, isolated account configuration and detailed verification
 receipts remain local. Private knowledge, login material and session histories are not in this fork.
+
+
+## Unprompted read integration — 2026-10-31
+
+`knowledge.read` performs one structured read and returns the result inline. It accepts only
+identity, roster/work searches, Lore search and Lore page reads. The agent cannot choose an
+actor, executable, shell command or write operation. A private workspace file,
+`.otto/knowledge-bridge.json`, binds profile UUIDs (lowercase keys) to canonical actors and an
+absolute read-only helper executable. It contains no credentials. Without this optional
+configuration, the tool is absent. Unknown profiles fail closed; the existing bridge retains
+its source scopes, Lore path confinement and FCG-only relationship-document restriction.
+
+`terminal.wait` and `terminal.read_output` no longer ask to read an existing command's result.
+`terminal.run` retains its complete-command confirmation because an arbitrary shell command
+cannot be classified as a safe read from its name. Reading the output never asks a second time.
+
+Both provider adapters now grant individual registered read tools, including in read-only
+mode. They also retain the existing separate handoff for tools with app-owned confirmation
+cards outside read-only mode. These lists never grant the entire MCP server. Scope checks,
+connection availability and profile privacy checks still apply; no prompt does not mean no
+authorization boundary. Provider callbacks and tools declaring external effects are excluded
+from the read grant. `surface.set` is correctly classified as a reversible UI mutation.
+
+### Existing write boundaries
+
+- Gmail send/reply and SMTP send require the app's full-message confirmation. Gmail drafts are
+  reversible and do not have that confirmation gate. Connection and send scopes still apply.
+- Calendar creation has its existing confirmation card.
+- Globally destructive tools (routine deletion, worktree cleanup, closing all nodes) require
+  a scope not issued to agent tokens, as well as confirmation. Memory deletion is recoverable
+  and restricted to user-initiated calls. Ordinary document/slide edits have different rules;
+  not every tool containing “delete” uses the global destructive gate.
+- Arbitrary terminal commands retain their command card; provider-native execution uses the
+  bot's own permission mode. App cards are not disabled by the provider-bypass preference.
+- Host Codex Full Access and Foundation bot permissions are separate. Full Access native
+  commands can reach outside these tool-specific guards. These guards are not a universal
+  email/delete firewall. This change does not change either global provider configuration or
+  the existing bots' permission modes, and it adds no knowledge-write capability.
+
+This is a tool/runtime change with no new UI surface, so no Glyph layer is added.
+
+
+Validation: 68 targeted tests passed. After a full app restart, both original native
+conversations returned a fresh dated Neon receipt through `knowledge.read`, with zero approval
+cards and no terminal fallback. The private helper was also pinned to its existing credential
+scope so GUI launch directories do not affect connection lookup. A transient tool disconnect
+cleared after restart. Existing app files and global provider settings remained unchanged.
+Detailed receipts, native session IDs and rollback material remain in private local evidence.

@@ -87,6 +87,11 @@ public struct ToolDefinition: Codable, Equatable, Sendable {
   }
 
   public var isProviderInternal: Bool { providerInternal ?? false }
+
+  /// Only declared reads without external effects or a separate confirmation qualify.
+  public var allowsUnpromptedRead: Bool {
+    riskLevel == .read && !requiresConfirmation && !isProviderInternal && externalEffect == nil
+  }
 }
 
 public struct ToolContext: Sendable {

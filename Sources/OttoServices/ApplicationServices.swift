@@ -589,6 +589,7 @@ public final class ApplicationServices: ObservableObject {
       try await registerHomeReviewTools()
       try await registerOfficeTools()
       try await registerProfileTools()
+      try await registerKnowledgeTools()
       botPresence.start()
       botActivity.start(eventBus: supervisor.eventBus)
       startBotEventProjection()
@@ -619,6 +620,7 @@ public final class ApplicationServices: ObservableObject {
           workspaceID: store.activeCanvas.id,
           selfConfirmingTools: await registry.definitions().filter(\.requiresConfirmation).map(
             \.name),
+          readOnlyTools: await registry.definitions().filter(\.allowsUnpromptedRead).map(\.name),
           workspacePath: workspacePath,
           tokenProvider: { [authenticator] nodeID, canvasID in
             await authenticator.issue(
