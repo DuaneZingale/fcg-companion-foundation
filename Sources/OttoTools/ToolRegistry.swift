@@ -88,6 +88,13 @@ public struct ToolDefinition: Codable, Equatable, Sendable {
 
   public var isProviderInternal: Bool { providerInternal ?? false }
 
+  /// Full Access removes provider prompts for ordinary app edits, not external effects or
+  /// destructive calls. App-owned confirmation remains a separate gate.
+  public var allowsUnpromptedEdit: Bool {
+    riskLevel == .reversible && !requiresConfirmation && !isProviderInternal
+      && externalEffect == nil && !requiredScopes.contains(.globalDestructive)
+  }
+
   /// Only declared reads without external effects or a separate confirmation qualify.
   public var allowsUnpromptedRead: Bool {
     riskLevel == .read && !requiresConfirmation && !isProviderInternal && externalEffect == nil

@@ -158,3 +158,39 @@ cards and no terminal fallback. The private helper was also pinned to its existi
 scope so GUI launch directories do not affect connection lookup. A transient tool disconnect
 cleared after restart. Existing app files and global provider settings remained unchanged.
 Detailed receipts, native session IDs and rollback material remain in private local evidence.
+
+
+## Full Access for the two Foundation bots — 2026-10-31
+
+The private FCG and Fenwick profiles and their canonical conversations now use `unrestricted`
+(the existing UI calls this “Bypass permissions”). Provider-global configuration and the original Companion OS
+remain unchanged. Their current role instructions permit ordinary requested edits and drafts
+without questions, but require a fresh exact-action decision for sending email or permanently
+deleting data. Email must use the app's configured send tools; permanent local deletion must
+use the app's guarded `terminal.run`. Denial stops that action without an alternative route.
+
+The provider adapters additionally grant individually registered reversible app tools in Full
+Access, so document edits do not fail at the provider layer. Tools declaring external effects,
+destructive scope, app confirmation or provider-internal status do not enter that edit list.
+The existing question and approval callbacks are individually reachable in Full Access so a
+human decision can still be requested. No MCP server-wide grant is added. App send/command
+cards and destructive scope restrictions remain enforced by the registry/supervisor.
+
+This is deliberately not a claim of OS-level interception: unrestricted native tools can
+operate outside app guards. The cross-route rule is a bot instruction; the protected app
+tools enforce their own gates in code. A requirement to technically intercept every arbitrary
+shell/API/browser send or deletion would require a different execution boundary from Full
+Access. No such universal interception is claimed by this pilot.
+
+
+Validation: 54 focused tests passed. In the installed app, both original bots edited and read
+back isolated files without approval, then displayed both the full-message email approval
+callback and a permanent-delete command card in Full Access. All four protected-action cards
+were denied. Neither delete command launched, both files remain intact, and no email sender
+was invoked (email delivery was not exercised). Both native session IDs and Full Access settings
+survived restart. Private receipts retain the evidence and rollback information.
+
+Claude Full Access omits the redundant provider `--permission-prompt-tool` registration,
+which otherwise hides that callback from the model's tool catalog. App-level confirmations
+remain enforced through the existing control plane; other Claude modes retain the provider
+permission callback. This fixes discoverability without disabling any app confirmation.

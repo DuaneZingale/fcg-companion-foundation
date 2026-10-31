@@ -267,6 +267,8 @@ public struct AgentLaunchRequest: Sendable, Equatable {
   public var ottoSelfConfirmingTools: [String]
   /// Read-only registry tools may run without a provider approval in every permission mode.
   public var ottoReadOnlyTools: [String]
+  /// Reversible app edits granted only when this bot is explicitly in Full Access.
+  public var ottoReversibleTools: [String]
   /// Otto's own workspace, where Otto stages chat attachments. Nil, or equal to `workspacePath`,
   /// when the run starts there; otherwise the run starts in a project's source folder.
   public var ottoWorkspacePath: String?
@@ -294,6 +296,7 @@ public struct AgentLaunchRequest: Sendable, Equatable {
     controlEnvironment: [String: String] = [:],
     ottoSelfConfirmingTools: [String] = [],
     ottoReadOnlyTools: [String] = [],
+    ottoReversibleTools: [String] = [],
     ottoWorkspacePath: String? = nil,
     profileInstructions: String? = nil,
     memoryBootstrap: String? = nil
@@ -309,6 +312,7 @@ public struct AgentLaunchRequest: Sendable, Equatable {
     self.controlEnvironment = controlEnvironment
     self.ottoSelfConfirmingTools = ottoSelfConfirmingTools
     self.ottoReadOnlyTools = ottoReadOnlyTools
+    self.ottoReversibleTools = ottoReversibleTools
     self.ottoWorkspacePath = ottoWorkspacePath
     self.profileInstructions = profileInstructions
     self.memoryBootstrap = memoryBootstrap
@@ -362,6 +366,7 @@ public struct AgentControlPlane: Sendable {
   /// request as `AgentLaunchRequest.ottoSelfConfirmingTools`.
   public var selfConfirmingTools: [String]
   public var readOnlyTools: [String]
+  public var reversibleTools: [String]
   /// Otto's own workspace. Otto keeps its per-run files (bootstrap copies, chat images) here even
   /// when a session starts in a project's source folder, so it never writes into that folder.
   public var workspacePath: String?
@@ -369,13 +374,14 @@ public struct AgentControlPlane: Sendable {
 
   public init(
     socketPath: String, token: String, mcpExecutable: String?, workspaceID: UUID,
-    selfConfirmingTools: [String] = [], readOnlyTools: [String] = [], workspacePath: String? = nil
+    selfConfirmingTools: [String] = [], readOnlyTools: [String] = [], reversibleTools: [String] = [], workspacePath: String? = nil
   ) {
     self.socketPath = socketPath
     self.mcpExecutable = mcpExecutable
     self.workspaceID = workspaceID
     self.selfConfirmingTools = selfConfirmingTools
     self.readOnlyTools = readOnlyTools
+    self.reversibleTools = reversibleTools
     self.workspacePath = workspacePath
     self.tokenProvider = { _, _ in token }
   }
@@ -386,6 +392,7 @@ public struct AgentControlPlane: Sendable {
     workspaceID: UUID,
     selfConfirmingTools: [String] = [],
     readOnlyTools: [String] = [],
+    reversibleTools: [String] = [],
     workspacePath: String? = nil,
     tokenProvider: @escaping @Sendable (UUID, UUID?) async -> String
   ) {
@@ -394,6 +401,7 @@ public struct AgentControlPlane: Sendable {
     self.workspaceID = workspaceID
     self.selfConfirmingTools = selfConfirmingTools
     self.readOnlyTools = readOnlyTools
+    self.reversibleTools = reversibleTools
     self.workspacePath = workspacePath
     self.tokenProvider = tokenProvider
   }

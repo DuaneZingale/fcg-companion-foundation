@@ -130,7 +130,10 @@ public struct ClaudeCodeAdapter: AgentAdapter {
       // Reads need no approval. Consequential tools retain Otto's own confirmation card.
       // Never grant the whole server, which also exposes unguarded command execution.
       let allowed = Array(Set(request.ottoReadOnlyTools +
-        (request.permissionMode == .readOnly ? [] : request.ottoSelfConfirmingTools))).sorted()
+        (request.permissionMode == .readOnly ? [] : request.ottoSelfConfirmingTools) +
+        (request.permissionMode == .unrestricted
+          ? request.ottoReversibleTools + [AgentUserChoicePrompt.toolName, AgentPermissionPrompt.toolName]
+          : []))).sorted()
       if !allowed.isEmpty {
         arguments += ["--allowedTools", allowed.map(OttoMCPRegistration.claudeToolName)
           .joined(separator: ",")]
@@ -144,8 +147,10 @@ public struct ClaudeCodeAdapter: AgentAdapter {
       arguments += ["--append-system-prompt", systemPrompt]
       // One-shot runs cannot paint an interactive permission prompt; route approvals through
       // the otto bridge so the user answers them in the agent conversation instead. Interactive
-      // launches keep the native TUI prompt.
-      if request.prompt != nil {
+      // launches keep the native TUI prompt. In Full Access the provider never prompts;
+      // do not reserve/hide this callback from its tool catalog. Otto's own app gates
+      // still call it directly through the control plane.
+      if request.prompt != nil, request.permissionMode != .unrestricted {
         arguments += ["--permission-prompt-tool", AgentPermissionPrompt.mcpToolName]
       }
     }
@@ -541,7 +546,10 @@ public struct CodexAdapter: AgentAdapter {
     // Non-interactive Codex otherwise rejects even reads before the app receives them.
     // Grant individual reads plus tools guarded by Otto's own confirmation, never all tools.
     let allowed = Array(Set(request.ottoReadOnlyTools +
-      (request.permissionMode == .readOnly ? [] : request.ottoSelfConfirmingTools))).sorted()
+      (request.permissionMode == .readOnly ? [] : request.ottoSelfConfirmingTools) +
+        (request.permissionMode == .unrestricted
+          ? request.ottoReversibleTools + [AgentUserChoicePrompt.toolName, AgentPermissionPrompt.toolName]
+          : []))).sorted()
     if !allowed.isEmpty {
       let entries = allowed.map { name in
         "\"\(tomlEscaped(name))\"={approval_mode=\"approve\"}"

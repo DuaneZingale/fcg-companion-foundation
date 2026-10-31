@@ -621,6 +621,7 @@ public final class ApplicationServices: ObservableObject {
           selfConfirmingTools: await registry.definitions().filter(\.requiresConfirmation).map(
             \.name),
           readOnlyTools: await registry.definitions().filter(\.allowsUnpromptedRead).map(\.name),
+          reversibleTools: await registry.definitions().filter(\.allowsUnpromptedEdit).map(\.name),
           workspacePath: workspacePath,
           tokenProvider: { [authenticator] nodeID, canvasID in
             await authenticator.issue(

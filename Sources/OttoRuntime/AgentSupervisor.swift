@@ -399,6 +399,9 @@ public actor AgentSupervisor {
     if request.controlEnvironment.isEmpty {
       request.controlEnvironment = controlEnvironment
     }
+    if request.ottoReversibleTools.isEmpty {
+      request.ottoReversibleTools = controlPlane?.reversibleTools ?? []
+    }
     if request.ottoReadOnlyTools.isEmpty {
       request.ottoReadOnlyTools = controlPlane?.readOnlyTools ?? []
     }
