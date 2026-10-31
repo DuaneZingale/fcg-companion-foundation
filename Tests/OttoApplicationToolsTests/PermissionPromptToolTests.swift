@@ -1,6 +1,7 @@
 import Foundation
 import OttoApplicationTools
 import OttoControl
+import OttoCore
 import OttoMCP
 import OttoModels
 import OttoRuntime
@@ -60,6 +61,153 @@ private struct ExpiringBrowserActionTool: OttoTool {
 
 @Suite("In-chat permission prompt tool")
 struct PermissionPromptToolTests {
+  @Test("Terminal commands require a fresh decision; deny and cancellation never launch")
+  func terminalCommandApprovalRoundTrip() async throws {
+    let directory = URL(fileURLWithPath: "/tmp/otto-terminal-\(UUID().uuidString.prefix(8))")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let marker = directory.appending(path: "executions")
+    let canvas = OttoCanvas(name: "Terminal approval")
+    let store = await CanvasStore(
+      snapshot: WorkspaceSnapshot(canvases: [canvas], activeCanvasID: canvas.id))
+    let supervisor = AgentSupervisor()
+    let registry = ToolRegistry()
+    try await registry.register(AgentRequestPermissionTool(supervisor: supervisor))
+    try await registry.register(
+      TerminalRunTool(store: store, supervisor: supervisor, workspacePath: directory.path))
+    try await registry.register(TerminalWaitTool(supervisor: supervisor))
+    try await registry.register(TerminalReadOutputTool(supervisor: supervisor))
+    let agentID = try await spawnLongRunningOneShot(supervisor: supervisor)
+    // Even the provider-bypass preference must not bypass an explicit app command card.
+    try await supervisor.setProviderPermissionBypass(agentID: agentID, enabled: true)
+    let authenticator = ControlAuthenticator()
+    let scopes: Set<ToolScope> = [.agentRead, .canvasRead, .canvasWrite, .terminalControl]
+    let token = await authenticator.issue(
+      actorID: "otto-agent-\(agentID)", scopes: scopes,
+      source: .agent, sourceNodeID: agentID, sourceCanvasID: canvas.id)
+    let server = try ControlServer(
+      socketPath: directory.appending(path: "control.sock").path,
+      registry: registry, authenticator: authenticator)
+    defer {
+      server.stop()
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let command = "printf 'executed\\n' >> '\(marker.path)'; printf 'approved-output'"
+    let arguments = try JSONValue.encode(
+      TerminalRunInput(command: command, x: 0, y: 0, shell: "/bin/sh"))
+    // Approval is not a substitute for the existing terminal scope.
+    await #expect(throws: ToolRegistryError.self) {
+      try await registry.call(
+        name: "terminal.run", input: arguments,
+        context: ToolContext(actorID: "read-only", scopes: [.agentRead], confirmed: true))
+    }
+    var approvedTerminalID: UUID?
+    for step in 0..<4 {
+      let cancellation = MCPRequestCancellation()
+      let bridge = MCPBridge(
+        client: ControlClient(socketPath: server.socketPath, token: token),
+        isCancelled: { cancellation.isCancelled })
+      let response = Task {
+        try await onDedicatedThread {
+          try bridge.handle(MCPRequest(
+            id: .number(Double(step)), method: "tools/call",
+            params: .object(["name": .string("terminal.run"), "arguments": arguments])))
+        }
+      }
+      try await waitForState(.waitingPermission, id: agentID, supervisor: supervisor)
+      #expect(try await supervisor.snapshot(agentID: agentID).attentionReason ==
+        "terminal.run: Shell: /bin/sh\nCommand:\n\(command)")
+      let before = (try? String(contentsOf: marker, encoding: .utf8)) ?? ""
+      #expect(before == (step < 2 ? "" : "executed\n"))
+      if step == 3 { cancellation.cancel() }
+      try await supervisor.resolvePermission(agentID: agentID, approved: step == 1 || step == 3)
+      let result = try await response.value
+      #expect(result.result?["isError"] == .bool(step != 1))
+      if step == 1 {
+        guard case .array(let content)? = result.result?["content"],
+          let text = content.first?["text"]?.stringValue else {
+          Issue.record("Missing terminal result")
+          continue
+        }
+        let run = try JSONDecoder().decode(TerminalOutput.self, from: Data(text.utf8))
+        approvedTerminalID = run.terminalID
+        try await waitForState(.done, id: run.terminalID, supervisor: supervisor)
+      }
+      #expect(((try? String(contentsOf: marker, encoding: .utf8)) ?? "") ==
+        (step == 0 ? "" : "executed\n"))
+    }
+    let terminalID = try #require(approvedTerminalID)
+    for name in ["terminal.wait", "terminal.read_output"] {
+      for approve in [false, true] {
+        let bridge = MCPBridge(client: ControlClient(socketPath: server.socketPath, token: token))
+        let response = Task {
+          try await onDedicatedThread {
+            try bridge.handle(MCPRequest(
+              id: .number(8), method: "tools/call",
+              params: .object(["name": .string(name), "arguments": .object([
+                "terminalID": .string(terminalID.uuidString)])])))
+          }
+        }
+        try await waitForState(.waitingPermission, id: agentID, supervisor: supervisor)
+        #expect(try await supervisor.snapshot(agentID: agentID).attentionReason?.contains(terminalID.uuidString) == true)
+        try await supervisor.resolvePermission(agentID: agentID, approved: approve)
+        let result = try await response.value
+        #expect(result.result?["isError"] == .bool(!approve))
+        if case .array(let content)? = result.result?["content"] {
+          #expect(content.first?["text"]?.stringValue?.contains("approved-output") == approve)
+        } else { Issue.record("Missing output decision result") }
+      }
+    }
+    await supervisor.stopAll()
+  }
+
+  @Test("Terminal approval shows the entire command and refuses hidden or oversized input")
+  func terminalApprovalDoesNotTruncate() async throws {
+    let supervisor = AgentSupervisor()
+    let agentID = try await spawnLongRunningOneShot(supervisor: supervisor)
+    let tool = AgentRequestPermissionTool(supervisor: supervisor)
+    let command = "printf '" + String(repeating: "a", count: 500) + "'; echo visible-suffix"
+    let response = Task {
+      try await tool.call(
+        AgentPermissionPromptInput(toolName: "terminal.run", input: .object([
+          "command": .string(command), "shell": .string("/bin/sh")])),
+        context: agentContext(agentID: agentID))
+    }
+    try await waitForState(.waitingPermission, id: agentID, supervisor: supervisor)
+    #expect(try await supervisor.snapshot(agentID: agentID).attentionReason?.hasSuffix(command) == true)
+    try await supervisor.resolvePermission(agentID: agentID, approved: false)
+    #expect(try await response.value.behavior == "deny")
+    for bad in [String(repeating: "a", count: 8_001), "echo ok\u{1B}[8mhidden", "echo ok\u{202E}hidden"] {
+      let result = try await tool.call(
+        AgentPermissionPromptInput(toolName: "terminal.run", input: .object(["command": .string(bad)])),
+        context: agentContext(agentID: agentID))
+      #expect(result.behavior == "deny")
+      #expect(await !supervisor.hasPendingPermission(agentID: agentID))
+    }
+    try await supervisor.stop(agentID: agentID)
+  }
+
+  @Test("Both provider adapters defer only the guarded terminal command to Otto")
+  func terminalApprovalProviderHandoff() async throws {
+    let guarded = [TerminalRunTool.definition, TerminalWaitTool.definition,
+      TerminalReadOutputTool.definition, TerminalOpenTool.definition]
+      .filter(\.requiresConfirmation).map(\.name)
+    #expect(guarded == ["terminal.run", "terminal.wait", "terminal.read_output"])
+    for readOnly in [false, true] {
+      let request = AgentLaunchRequest(
+        workspacePath: FileManager.default.currentDirectoryPath, prompt: "Read knowledge",
+        permissionMode: readOnly ? .readOnly : .workspaceWrite,
+        ottoMCPExecutable: "/usr/local/bin/otto-mcp", ottoSelfConfirmingTools: guarded)
+      let codex = try await CodexAdapter(executablePath: "/bin/echo").buildLaunchSpec(request)
+      let claude = try await ClaudeCodeAdapter(executablePath: "/bin/echo").buildLaunchSpec(request)
+      for name in guarded {
+        #expect(codex.arguments.contains { $0.contains("\"\(name)\"={approval_mode=\"approve\"}") } == !readOnly)
+        #expect(claude.arguments.contains { $0.contains("mcp__otto__" + name.replacingOccurrences(of: ".", with: "_")) } == !readOnly)
+      }
+      #expect(!codex.arguments.contains { $0.contains("default_tools_approval_mode") })
+      #expect(!claude.arguments.contains("mcp__otto"))
+    }
+  }
+
   @Test("Browser clicks replay once without an approval card in bypass mode")
   func bridgeBypassClicksOnce() async throws {
     let supervisor = AgentSupervisor()

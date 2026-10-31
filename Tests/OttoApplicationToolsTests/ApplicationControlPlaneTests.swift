@@ -438,7 +438,7 @@ struct ApplicationControlPlaneTests {
     )
     let context = ToolContext(
       actorID: "process-cleanup",
-      scopes: [.canvasRead, .canvasWrite, .terminalControl]
+      scopes: [.canvasRead, .canvasWrite, .terminalControl], confirmed: true
     )
     let terminal = try await registry.call(
       name: "terminal.run",
@@ -984,6 +984,7 @@ struct ApplicationControlPlaneTests {
         id: parent, canvasID: canvas.id)
       let context = ToolContext(
         actorID: "background-test", scopes: [.canvasRead, .canvasWrite, .terminalControl],
+        confirmed: true,
         source: .agent, sourceNodeID: parent, sourceCanvasID: canvas.id)
       let run = try await registry.call(
         name: "terminal.run",
@@ -1040,7 +1041,7 @@ struct ApplicationControlPlaneTests {
     )
     let context = ToolContext(
       actorID: "terminal-e2e",
-      scopes: [.canvasRead, .canvasWrite, .terminalControl]
+      scopes: [.canvasRead, .canvasWrite, .terminalControl], confirmed: true
     )
 
     let run = try await registry.call(

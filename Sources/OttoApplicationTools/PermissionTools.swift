@@ -95,6 +95,28 @@ public struct AgentRequestPermissionTool: OttoTool {
       return .deny(message: "Otto could not identify the agent requesting permission")
     }
     var detail = Self.detail(toolName: input.toolName, input: input.input)
+    if input.toolName == "terminal.run" {
+      guard case .object(let object)? = input.input else {
+        return .deny(message: "Otto could not read the terminal command to approve")
+      }
+      if let refusal = TerminalCommandApprovalSummary.refusal(input: object) {
+        return .deny(message: refusal)
+      }
+      detail = TerminalCommandApprovalSummary.text(input: object)
+    }
+    if ["terminal.wait", "terminal.read_output"].contains(input.toolName) {
+      guard let terminalID = input.input?["terminalID"]?.stringValue,
+        UUID(uuidString: terminalID) != nil
+      else { return .deny(message: "Otto could not identify the terminal output to approve") }
+      detail = "Read output from terminal \(terminalID). This does not start another command."
+      if input.toolName == "terminal.wait" {
+        let timeout = input.input?["timeoutMilliseconds"]?.numberValue ?? 30_000
+        guard timeout.isFinite, (1...30_000).contains(timeout) else {
+          return .deny(message: "Terminal wait timeout must be between 1 and 30000 milliseconds")
+        }
+        detail += "\nWait up to \(Int(timeout)) milliseconds."
+      }
+    }
     if EmailApprovalSummary.tools.contains(input.toolName) {
       // The card shows the whole message, so one too long to show is refused, not cut short.
       guard case .object(let object)? = input.input else {
@@ -117,8 +139,9 @@ public struct AgentRequestPermissionTool: OttoTool {
         // Dotted Otto tools are app confirmations; the supervisor also applies tool bypass
         // to browser.click, while account access and other app confirmations stay explicit.
         isProviderPermission: !input.toolName.contains("."),
-        detailLimit: EmailApprovalSummary.tools.contains(input.toolName)
-          ? EmailApprovalSummary.limit : 240
+        detailLimit: input.toolName == "terminal.run"
+          ? TerminalCommandApprovalSummary.limit
+          : EmailApprovalSummary.tools.contains(input.toolName) ? EmailApprovalSummary.limit : 240
       )
       if approved {
         return .allow(updatedInput: input.input ?? .object([:]))
@@ -149,6 +172,35 @@ public struct AgentRequestPermissionTool: OttoTool {
       if case .string(let string) = value { bridged[key] = string }
     }
     return ClaudeOutputParser.toolDetail(name: toolName, input: bridged)
+  }
+}
+
+/// A shell command must never be approved from the usual truncated tool preview.
+/// Refuse content the card cannot faithfully display instead of hiding an executable suffix.
+public enum TerminalCommandApprovalSummary {
+  public static let commandLimit = 8_000
+  public static let shellLimit = 1_000
+  public static let limit = commandLimit + shellLimit + 100
+
+  public static func refusal(input: [String: JSONValue]) -> String? {
+    guard let command = input["command"]?.stringValue,
+      !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else { return "A terminal command is required for approval" }
+    let shell = input["shell"]?.stringValue ?? "/bin/zsh"
+    guard command.count <= commandLimit, shell.count <= shellLimit else {
+      return "This terminal command is too long to show in full for approval. Use a shorter command."
+    }
+    if (command + shell).unicodeScalars.contains(where: {
+      ($0.properties.generalCategory == .control && $0 != "\n" && $0 != "\t")
+        || $0.properties.generalCategory == .format
+    }) {
+      return "This terminal command contains control characters Otto cannot show for approval."
+    }
+    return nil
+  }
+
+  public static func text(input: [String: JSONValue]) -> String {
+    "Shell: \(input["shell"]?.stringValue ?? "/bin/zsh")\nCommand:\n\(input["command"]?.stringValue ?? "")"
   }
 }
 

@@ -129,7 +129,7 @@ public struct ClaudeCodeAdapter: AgentAdapter {
     {
       // Otto confirms its own consequential tools (smtp.send, gmail.send, ...) through its
       // permission card, so Claude need not ask again for exactly those. Every other Otto tool
-      // (terminal.run, agent.spawn, ...) stays behind Claude's prompt. Read-only bots keep
+      // (terminal.open, agent.spawn, ...) stays behind Claude's prompt. Read-only bots keep
       // Claude's plan-mode prompts. The variadic flag sits before another flag so it cannot
       // swallow the trailing positional prompt.
       if request.permissionMode == .workspaceWrite, !request.ottoSelfConfirmingTools.isEmpty {

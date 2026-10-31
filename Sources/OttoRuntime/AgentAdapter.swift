@@ -263,7 +263,7 @@ public struct AgentLaunchRequest: Sendable, Equatable {
   /// Otto tool names (e.g. `smtp.send`) whose definitions require confirmation. Otto shows its
   /// own permission card before any of these runs, so adapters may pre-approve exactly these at
   /// the provider level to avoid a second prompt. Never the whole server: tools such as
-  /// `terminal.run` carry no Otto card and must stay behind the provider's own approval.
+  /// `terminal.open` carry no Otto card and must stay behind the provider's own approval.
   public var ottoSelfConfirmingTools: [String]
   /// Otto's own workspace, where Otto stages chat attachments. Nil, or equal to `workspacePath`,
   /// when the run starts there; otherwise the run starts in a project's source folder.

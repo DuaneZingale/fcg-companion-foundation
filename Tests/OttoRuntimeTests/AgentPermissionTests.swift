@@ -205,7 +205,7 @@ struct AgentPermissionTests {
       ))
     let index = try #require(spec.arguments.firstIndex(of: "--allowedTools"))
     #expect(spec.arguments[index + 1] == "mcp__otto__smtp_send,mcp__otto__calendar_create_event")
-    // A server-wide grant would let terminal.run, agent.spawn, ... skip every prompt.
+    // A server-wide grant would let terminal.open, agent.spawn, ... skip every prompt.
     #expect(!spec.arguments.contains("mcp__otto"))
     #expect(!spec.arguments[index + 1].contains("terminal_run"))
     // The next argument is a flag, so the variadic list ends before the prompt.
@@ -272,7 +272,7 @@ struct AgentPermissionTests {
         "mcp_servers.otto.tools={\"smtp.send\"={approval_mode=\"approve\"},"
           + "\"gmail.send\"={approval_mode=\"approve\"}}"))
     #expect(!spec.arguments.contains { $0.contains("default_tools_approval_mode") })
-    // terminal.run and every other tool without an Otto card keep Codex's own approval policy.
+    // Tools absent from the self-confirming list keep Codex's own approval policy.
     #expect(
       !spec.arguments.contains {
         $0.hasPrefix("mcp_servers.otto.tools") && $0.contains("terminal.run")

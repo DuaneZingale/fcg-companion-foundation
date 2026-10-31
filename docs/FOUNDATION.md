@@ -3,6 +3,10 @@
 This fork evaluates Otto as the desktop conversation and agent runtime for Companion OS.
 The existing Companion OS repository, applications, databases and services stay in place.
 
+Current local status (2026-10-31): both companions have completed live knowledge reads through
+explicit in-app approvals. See the approval integration result below; the first pilot's blocker
+is retained as historical evidence.
+
 ## Baseline
 
 Upstream starting point: `maxtrigify/Otto` at
@@ -76,3 +80,33 @@ No custom UI is authored in this bootstrap, so no Glyph review layer is added in
 Session IDs, source snapshots and detailed receipts stay in the private local evidence folder.
 The next integration task is an approval-preserving knowledge connection; profile snapshots
 must not be described as live retrieval. Upstream UI labels and app-level storage paths remain.
+
+## Approval integration result — 2026-10-31
+
+`terminal.run`, `terminal.wait` and `terminal.read_output` now require Otto confirmation.
+The existing provider adapters hand off only these individually guarded tools to Otto; there
+is no server-wide grant, global configuration edit or switch to unrestricted permissions.
+The registry still checks scopes before confirmation, and read-only launches gain no grant.
+
+The command card shows the shell and entire command. Oversized commands and hidden control
+characters are refused instead of being truncated. Output retrieval has its own card naming
+the terminal. Approve permits that call; Deny prevents execution or output disclosure. A later
+call requires another decision. The existing provider-bypass preference does not bypass these
+explicit terminal cards. This intentionally means a lookup may ask twice: run, then read.
+
+Validation: 64 targeted tests passed across the provider permission, application control,
+terminal waiting and permission-prompt suites. Coverage includes real shell execution only
+after approval, denial, cancellation, scope enforcement, subsequent calls needing approval,
+output withholding on denial, and full command display. In the installed app, an intentionally
+denied FCG lookup stopped without creating a command terminal. FCG/Codex and Fenwick/Claude
+then each returned a fresh dated knowledge receipt after command and output approval.
+
+An additional local collision was found: the desktop app claimed writer locks for Foundation
+sessions in the default Codex home. The private installation now uses Otto's existing named
+provider-account isolation for FCG, with the same login and a separate session store. Only
+Foundation's FCG journals were copied; source history remains intact. Do not share session or
+lock directories with another active host, and do not kill the desktop app to release a lock.
+Fenwick retains his original Claude session and provider configuration.
+
+The installed build, rollback bundles, isolated account configuration and detailed verification
+receipts remain local. Private knowledge, login material and session histories are not in this fork.

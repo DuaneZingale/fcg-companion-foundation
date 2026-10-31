@@ -22,6 +22,7 @@ struct TerminalWaitingToolTests {
       .affectedNodeIDs[0]
     let context = ToolContext(
       actorID: "interactive-terminal", scopes: [.canvasRead, .canvasWrite, .terminalControl],
+      confirmed: true,
       source: .agent, sourceNodeID: agent, sourceCanvasID: canvas.id)
     defer { Task { await supervisor.stopAll() } }
 

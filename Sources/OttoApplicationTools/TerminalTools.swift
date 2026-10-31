@@ -142,7 +142,7 @@ public struct TerminalRunTool: OttoTool {
   public static let definition = ToolDefinition(
     name: "terminal.run",
     description:
-      "Starts a command in an Otto-supervised terminal and returns immediately. Otto makes it available in "
+      "Asks for approval of the full shell command in this chat, then starts it in an Otto-supervised terminal and returns immediately. Otto makes it available in "
       + "the work panel on the right of this chat, in a tab named after the command (the result's "
       + "`title`, e.g. \"Setup script\"). The panel stays closed until the person opens it. "
       + "Use it for interactive steps the person must do themselves (pressing a key, pasting a "
@@ -164,7 +164,8 @@ public struct TerminalRunTool: OttoTool {
     ),
     outputSchema: .object(["type": .string("object")]),
     requiredScopes: [.canvasWrite, .terminalControl],
-    riskLevel: .consequential
+    riskLevel: .consequential,
+    requiresConfirmation: true
   )
 
   private let store: CanvasStore
@@ -217,11 +218,12 @@ public struct TerminalSendInputTool: OttoTool {
 public struct TerminalReadOutputTool: OttoTool {
   public static let definition = ToolDefinition(
     name: "terminal.read_output",
-    description: "Reads bounded output and process state from a terminal node.",
+    description: "Asks for approval, then reads bounded output and process state from a terminal node.",
     inputSchema: terminalIDSchema(),
     outputSchema: .object(["type": .string("object")]),
     requiredScopes: [.canvasRead],
-    riskLevel: .read
+    riskLevel: .read,
+    requiresConfirmation: true
   )
   private let supervisor: AgentSupervisor
   public init(supervisor: AgentSupervisor) { self.supervisor = supervisor }
@@ -236,7 +238,7 @@ public struct TerminalWaitTool: OttoTool {
   public static let definition = ToolDefinition(
     name: "terminal.wait",
     description:
-      "Waits without polling for an Otto-supervised terminal command to finish. Returns "
+      "Asks for approval to read output, then waits without polling for an Otto-supervised terminal command to finish. Returns "
       + "immediately when it is already finished, early with waitingForUser=true when the command "
       + "starts waiting for the person to answer a prompt in the terminal (tell them where it is "
       + "and what to do, then wait again), or with its current state and bounded output when the "
@@ -255,7 +257,8 @@ public struct TerminalWaitTool: OttoTool {
     ),
     outputSchema: .object(["type": .string("object")]),
     requiredScopes: [.terminalControl],
-    riskLevel: .read
+    riskLevel: .read,
+    requiresConfirmation: true
   )
 
   private let supervisor: AgentSupervisor
