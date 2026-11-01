@@ -135,6 +135,12 @@ actor NylasClient {
   private var grants: [JSONValue] = []
   private var grantsReadAt: Date?
 
+  /// A user-requested read refresh may retry a resolver that returned no credential.
+  /// Never retries an API operation or clears a successfully resolved key.
+  func allowCredentialRetryAfterFailure() async {
+    if let credentialTask, await credentialTask.value == nil { self.credentialTask = nil }
+  }
+
   init(configuration: NylasConfiguration,
     credential: (@Sendable () async -> String?)? = nil, transport: Transport? = nil) {
     self.configuration = configuration

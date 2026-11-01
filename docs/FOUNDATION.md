@@ -194,3 +194,37 @@ Claude Full Access omits the redundant provider `--permission-prompt-tool` regis
 which otherwise hides that callback from the model's tool catalog. App-level confirmations
 remain enforced through the existing control plane; other Claude modes retain the provider
 permission callback. This fixes discoverability without disabling any app confirmation.
+
+## Fenwick cloud brief and draft review — 2026-11-01
+
+Home has an optional **Fenwick inbox** entry when the private workspace contains
+`.otto/fenwick-inbox.json`. It opens a native review sheet using the existing app palette and
+components. Needs you shows the cloud report's exact 24-hour window, attention items, coverage
+and explicit errors. Review drafts defaults to live drafts linked to the current brief by
+account and draft/thread identity. Earlier drafts are available through an explicit toggle
+and search, without turning them into new attention items. Opening an item reads its current
+full contents from Nylas and displays recipients, subject and inert body text. Attachments are
+counted but not rendered. Email HTML cannot execute scripts or load remote tracking images.
+
+The private configuration contains `readerExecutable` (absolute Python path), `readerScript`
+(installed `scripts/fenwick-brief-read.py` path), `profileID` (the existing Fenwick binding),
+`repository` (private owner/repository), `workflow` (workflow filename), and `githubExecutable`
+(absolute `gh` path). It contains no API key. The reader uses the Mac's existing GitHub CLI
+authentication and GET requests to fetch a private Actions artifact. Only the exact report.json
+entry is read in memory; archive entries are never extracted or executed. Latest failed runs
+are not silently replaced by an earlier success. A newer running job is identified separately.
+The local cache is private workspace data and marked as a saved copy after a failed refresh.
+The sheet refreshes when opened and every five minutes while open; the cloud schedule remains
+independent of the Mac. No new local automation or cloud mail mutation is introduced.
+
+If the credential resolver times out, reads fail visibly and do not return an empty inbox.
+A later explicit read/Refresh may retry the failed credential lookup. A resolved key is not
+discarded, and no API write or uncertain send is retried by this recovery path.
+
+The native review model exposes only message/draft reads. It has no send/delete method or UI
+button. **Open Fenwick chat** returns to the existing bot; it sends no prompt automatically.
+Edits and exact-action send/delete requests continue through the existing configured tools,
+with fresh approval enforced for `nylas.send` and `nylas.delete_permanently`. Review is not
+approval. Private account bindings, report contents, draft bodies and authentication remain
+outside this public repository. This SwiftUI surface reuses native Foundation controls; it
+does not embed a web surface or the web-only GlyphLayer package.

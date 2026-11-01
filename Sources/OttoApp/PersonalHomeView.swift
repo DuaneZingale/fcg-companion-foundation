@@ -32,6 +32,7 @@ struct PersonalHomeView: View {
   @State private var addingTodo = false
   @State private var briefError: String?
   @State private var settingUpBrief = false
+  @State private var showingFenwickInbox = false
   @AppStorage(FirstRunPreferences.preferredName) private var preferredName = ""
   @AppStorage(FirstRunPreferences.gettingStartedActive) private var gettingStartedActive = false
   @AppStorage(FirstRunPreferences.gettingStartedDismissed) private var gettingStartedDismissed =
@@ -188,6 +189,13 @@ struct PersonalHomeView: View {
       content(now: timeline.date)
     }
     .onAppear(perform: applyProfileTheme)
+    .sheet(isPresented: $showingFenwickInbox) {
+      FenwickInboxView(workspacePath: services.defaultWorkspacePath) {
+        if let entry = allRoster.first(where: { $0.profile.name.localizedCaseInsensitiveContains("Fenwick") }) {
+          openBot(entry.profile)
+        }
+      }
+    }
     // Accounts signed in since the brief was set up get their own morning run.
     .task(id: profile.id) {
       _ = try? await services.syncMorningBriefAccounts(profileID: profile.id)
@@ -240,6 +248,12 @@ struct PersonalHomeView: View {
     // on the right so nothing overlaps them.
     HStack(spacing: 14) {
       Spacer()
+      if FenwickInbox.isConfigured(workspacePath: services.defaultWorkspacePath) {
+        Button { showingFenwickInbox = true } label: {
+          Label("Fenwick inbox", systemImage: "tray.full")
+            .font(.ottoDisplay(12))
+        }.accessibilityLabel("Open Fenwick inbox briefs and drafts")
+      }
       OttoHeaderControls(
         services: services, store: store, needsAttention: attentionCount > 0,
         openActivity: { openLibrary(.activity) }
