@@ -228,3 +228,17 @@ with fresh approval enforced for `nylas.send` and `nylas.delete_permanently`. Re
 approval. Private account bindings, report contents, draft bodies and authentication remain
 outside this public repository. This SwiftUI surface reuses native Foundation controls; it
 does not embed a web surface or the web-only GlyphLayer package.
+
+Validation: 11 focused Swift tests and four cloud-reader tests passed. The installed app
+loaded a real private cloud report covering all five inboxes, read an attention message live,
+and displayed a real saved draft with its full recipients and body. The current-brief draft
+filter and explicit earlier-draft search were verified in the app. Open Fenwick chat returned
+to the existing conversation with an empty composer; no new prompt, send or deletion occurred.
+Original bot profiles, permission modes and connection bindings matched their pre-install
+fingerprints. Rollback bundles and detailed receipts remain private.
+
+Live testing exposed a timeout in the local credential resolver. The pilot's private resolver
+now uses isolated 1Password CLI configuration, an explicit cache-free read, and the same
+existing service account and secret reference. Global CLI/account configuration is unchanged.
+Foundation's explicit Refresh recovered successfully in the app. No raw credential was
+written into the app configuration, repository, report cache or diagnostic receipts.
