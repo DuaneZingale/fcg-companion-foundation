@@ -1,4 +1,6 @@
 import Combine
+import CryptoKit
+import OttoApplicationTools
 import Foundation
 import OttoRuntime
 import OttoTools
@@ -64,17 +66,22 @@ public struct FenwickMailItem: Identifiable, Sendable {
   public let body: String
   public let attachmentCount: Int
   public let isDraft: Bool
+  let original: JSONValue
+  public var replyToMessageID: String? { original["reply_to_message_id"]?.stringValue }
+  public var canEdit: Bool { isDraft && attachmentCount == 0 && (original["reply_to"]?.arrayValue ?? []).isEmpty }
 
   init(account: String, value: JSONValue, isDraft: Bool) throws {
     guard let id = value["id"]?.stringValue else { throw NylasError.unavailable("Mail identity unavailable.") }
+    original = value
     self.account = account; objectID = id; self.isDraft = isDraft
     threadID = value["thread_id"]?.stringValue
-    subject = value["subject"]?.stringValue ?? "(No subject)"
+    subject = value["subject"]?.stringValue ?? ""
     func addresses(_ key: String) -> String {
       (value[key]?.arrayValue ?? []).compactMap { $0["email"]?.stringValue }.joined(separator: ", ")
     }
     to = addresses("to"); cc = addresses("cc"); bcc = addresses("bcc"); from = addresses("from")
-    body = Self.plainText(value["body"]?.stringValue ?? value["snippet"]?.stringValue ?? "")
+    let rawBody = value["body"]?.stringValue ?? value["snippet"]?.stringValue ?? ""
+    body = value["is_plaintext"] == .bool(true) ? rawBody.trimmingCharacters(in: .whitespacesAndNewlines) : Self.plainText(rawBody)
     attachmentCount = value["attachments"]?.arrayValue?.count ?? 0
   }
 
@@ -105,7 +112,28 @@ struct FenwickInboxConfiguration: Codable {
   let profileID: UUID
 }
 
-/// This view model exposes reads only. Send/delete remain in the existing guarded tools.
+public struct FenwickDraftEdit: Equatable, Sendable {
+  public var to: String
+  public var cc: String
+  public var bcc: String
+  public var subject: String
+  public var body: String
+  public init(_ mail: FenwickMailItem) {
+    to = mail.to; cc = mail.cc; bcc = mail.bcc; subject = mail.subject; body = mail.body
+  }
+}
+
+/// An immutable, single-use approval prepared from a freshly checked saved draft.
+public struct FenwickSendReview: Identifiable, Sendable {
+  public let id: UUID
+  public let mail: FenwickMailItem
+  public let text: String
+  fileprivate let input: JSONValue
+  fileprivate let created: Date
+}
+
+/// Reversible draft editing, plus a separate exact-content human send approval.
+/// Permanent deletion is deliberately not exposed by this surface.
 @MainActor public final class FenwickInbox: ObservableObject {
   @Published public private(set) var snapshot: FenwickBriefSnapshot?
   @Published public private(set) var error: String?
@@ -115,6 +143,8 @@ struct FenwickInboxConfiguration: Codable {
   @Published public private(set) var draftErrors: [String] = []
   @Published public private(set) var loadingDrafts = false
   @Published public private(set) var draftsLoaded = false
+  private var pendingReview: FenwickSendReview?
+  private var writing = false
   private let workspace: URL
   private var client: NylasClient?
   private var accounts: [String] = []
@@ -217,4 +247,108 @@ struct FenwickInboxConfiguration: Codable {
     guard let data = value["result"]?["data"] else { throw NylasError.unavailable("Mail is no longer available.") }
     return try FenwickMailItem(account: account, value: data, isDraft: draft)
   }
+  public func cancelSendReview() { pendingReview = nil }
+
+  private func draftFields(_ input: JSONValue) throws -> [String: JSONValue] {
+    guard case .object(let fields) = input else { throw NylasError.unavailable("Invalid draft.") }; return fields
+  }
+
+  private func draftInput(_ mail: FenwickMailItem, _ edit: FenwickDraftEdit) throws -> JSONValue {
+    guard mail.canEdit else { throw NylasError.unavailable("Drafts with attachments or a custom Reply-To remain read-only here.") }
+    var fields: [String: JSONValue] = ["account": .string(mail.account), "to": .string(edit.to),
+      "cc": .string(edit.cc), "bcc": .string(edit.bcc), "subject": .string(edit.subject), "body": .string(edit.body)]
+    if let reply = mail.replyToMessageID { fields["replyToMessageID"] = .string(reply) }
+    return .object(fields)
+  }
+
+  private func unchanged(_ expected: FenwickMailItem) async throws -> FenwickMailItem {
+    let current = try await read(account: expected.account, objectID: expected.objectID, draft: true)
+    // Compare raw content as well as displayed text: hidden HTML and recipient changes matter.
+    let fields = ["id", "subject", "body", "to", "cc", "bcc", "from", "attachments", "reply_to",
+                  "reply_to_message_id", "thread_id", "is_plaintext"]
+    guard fields.allSatisfy({ current.original[$0] == expected.original[$0] }) else {
+      throw NylasError.unavailable("This draft changed elsewhere. Reopen it and review the latest version before continuing.")
+    }
+    return current
+  }
+
+  public func saveDraft(_ original: FenwickMailItem, edit: FenwickDraftEdit) async throws -> FenwickMailItem {
+    guard !writing else { throw NylasError.unavailable("Another draft action is still in progress.") }
+    writing = true; pendingReview = nil; defer { writing = false }
+    guard !FileManager.default.fileExists(atPath: attemptURL(original).path) else {
+      throw NylasError.unavailable("A send was already attempted for this draft. Check Sent before editing or sending it again.")
+    }
+    var input = try draftFields(draftInput(original, edit))
+    _ = try NylasClient.message(.object(input), sending: false)
+    _ = try await unchanged(original)
+    input["draftID"] = .string(original.objectID)
+    let client = try mailClient()
+    let result = try await client.run(action: "draft", input: .object(input), accounts: accounts)
+    // Some providers replace the draft identity when saving.
+    let id = result["result"]?["data"]?["id"]?.stringValue ?? original.objectID
+    let saved = try await read(account: original.account, objectID: id, draft: true)
+    var normalized = edit
+    normalized.body = edit.body.trimmingCharacters(in: .whitespacesAndNewlines)
+    let expected = try NylasClient.message(try draftInput(saved, normalized), sending: false)
+    let actual = try NylasClient.message(try draftInput(saved, FenwickDraftEdit(saved)), sending: false)
+    guard expected == actual else { throw NylasError.unavailable("The saved draft did not match the edit. Reopen it before making another change.") }
+    drafts.removeAll { $0.id == original.id || $0.id == saved.id }; drafts.append(saved)
+    return saved
+  }
+
+  private func attemptURL(_ mail: FenwickMailItem) -> URL {
+    let hash = SHA256.hash(data: Data(mail.id.utf8)).map { String(format: "%02x", $0) }.joined()
+    return workspace.appending(path: ".otto/fenwick-send-attempts/" + hash + ".json")
+  }
+
+  public func prepareSend(_ mail: FenwickMailItem) async throws -> FenwickSendReview {
+    guard !writing else { throw NylasError.unavailable("Another draft action is still in progress.") }
+    writing = true; pendingReview = nil; defer { writing = false }
+    let input = try draftInput(mail, FenwickDraftEdit(mail))
+    _ = try NylasClient.message(input, sending: true)
+    guard !FileManager.default.fileExists(atPath: attemptURL(mail).path) else {
+      throw NylasError.unavailable("A send was already attempted for this draft. Check Sent before taking any further action; this view will not send it again.")
+    }
+    _ = try await unchanged(mail)
+    let fields = try draftFields(input)
+    guard let text = EmailApprovalSummary.text(toolName: "nylas.send", input: fields) else {
+      throw NylasError.unavailable("Cannot display this email faithfully for approval.")
+    }
+    let threadNote = mail.replyToMessageID == nil ? "\n\nNo reply reference is available. This will send as a new message." : ""
+    let review = FenwickSendReview(id: UUID(), mail: mail, text: text + threadNote, input: input, created: .now)
+    pendingReview = review
+    return review
+  }
+
+  public func approveSend(_ review: FenwickSendReview) async throws {
+    guard !writing, let pending = pendingReview, pending.id == review.id,
+      Date.now.timeIntervalSince(pending.created) < 600 else {
+      throw NylasError.unavailable("A fresh explicit approval is required. Review the draft again.")
+    }
+    // Consume before any suspension: double-clicks, cancelled approvals and replay cannot send.
+    pendingReview = nil; writing = true; defer { writing = false }
+    _ = try await unchanged(pending.mail)
+    let url = attemptURL(pending.mail)
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700])
+    // Exclusive durable reservation comes BEFORE the network write and survives app restart.
+    try Data(#"{"status":"attempted","instruction":"Check Sent; never automatically retry"}"#.utf8)
+      .write(to: url, options: .withoutOverwriting)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    let client = try mailClient(); let bound = accounts
+    let tool = NylasTool<NylasSend> { input, _ in try await client.run(action: "send", input: input, accounts: bound) }
+    do {
+      let result = try await tool.call(pending.input,
+        context: ToolContext(actorID: "fenwick-inbox-human", scopes: [.agentRead], confirmed: true, source: .userInterface))
+      guard let id = result["result"]?["data"]?["id"]?.stringValue, !id.isEmpty else {
+        throw NylasError.unavailable("No sent-message receipt returned.")
+      }
+      let receipt = try JSONEncoder().encode(["status": "sent", "messageID": id])
+      try receipt.write(to: url, options: .atomic)
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    } catch {
+      throw NylasError.unavailable("Send outcome needs checking in Sent. This draft is locked against another send here; no automatic retry was made.")
+    }
+  }
+
 }

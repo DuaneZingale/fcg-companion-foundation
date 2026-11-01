@@ -1,7 +1,7 @@
 import OttoServices
 import SwiftUI
 
-/// Native, read-only review surface; all consequential actions stay in the guarded chat tools.
+/// Native brief review and explicit draft approval.
 struct FenwickInboxView: View {
   @StateObject private var inbox: FenwickInbox
   @Environment(\.dismiss) private var dismiss
@@ -10,6 +10,7 @@ struct FenwickInboxView: View {
   @State private var allDrafts = false
   @State private var draftSearch = ""
   @State private var selected: FenwickMailItem?
+  @State private var editing: FenwickMailItem?
   @State private var reading = false
   @State private var readError: String?
   let openFenwick: () -> Void
@@ -60,20 +61,23 @@ struct FenwickInboxView: View {
               Image(systemName: showingDrafts ? "doc.text" : "envelope.open").font(.system(size: 28))
               Text(showingDrafts ? "Choose a draft to review" : "Choose an attention item")
                 .font(.ottoDisplay(20))
-              Text("Full message contents are read from your inbox when opened. Nothing is marked read, sent or deleted here.")
+              Text("Full message contents are read from your inbox when opened. Opening a message does not mark it read. Drafts stay unsent until you explicitly approve sending.")
                 .font(.ottoDisplay(14)).foregroundStyle(palette.muted)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
           }
         }.frame(minWidth: 330, maxWidth: .infinity)
       }
       Divider()
-      Text("Drafts remain unsent. Ask Fenwick in chat to make changes or prepare a send. Sending and permanent deletion require a separate approval of the exact action.")
+      Text("Save draft changes here. Sending requires a separate approval of the exact message. Permanent deletion remains approval-protected and is not available in this view.")
         .font(.ottoDisplay(12)).foregroundStyle(palette.muted)
     }
     .padding(24)
     .foregroundStyle(palette.paper)
     .background(palette.workspaceSurface)
     .frame(minWidth: 850, idealWidth: 960, minHeight: 620, idealHeight: 720)
+    .sheet(item: $editing) { mail in
+      FenwickDraftEditor(inbox: inbox, original: mail) { saved in selected = saved }
+    }
     .task {
       await inbox.refresh()
       while !Task.isCancelled {
@@ -169,6 +173,10 @@ struct FenwickInboxView: View {
     VStack(alignment: .leading, spacing: 14) {
       Text(mail.isDraft ? "UNSENT DRAFT · LIVE READ" : "MESSAGE · LIVE READ")
         .font(.ottoMicro).foregroundStyle(palette.signal)
+      if mail.isDraft {
+        Button("Edit and approve draft") { editing = mail }.disabled(!mail.canEdit)
+        if !mail.canEdit { notice("Drafts with attachments or a custom Reply-To are read-only here.") }
+      }
       Text(mail.subject).font(.ottoDisplay(22).weight(.semibold))
       Text("Inbox: \(mail.account)").font(.ottoDisplay(12))
       if !mail.from.isEmpty { Text("From: \(mail.from)").font(.ottoDisplay(12)) }
@@ -200,5 +208,112 @@ struct FenwickInboxView: View {
       do { selected = try await inbox.read(account: account, objectID: id, draft: draft) }
       catch { readError = "Couldn’t read this \(draft ? "draft" : "message"). It may have changed or been removed. Refresh before reviewing." }
     }
+  }
+}
+
+
+private struct FenwickDraftEditor: View {
+  @ObservedObject var inbox: FenwickInbox
+  @Environment(\.dismiss) private var dismiss
+  @Environment(\.ottoPalette) private var palette
+  @State private var saved: FenwickMailItem
+  @State private var edit: FenwickDraftEdit
+  @State private var busy = false
+  @State private var status: String?
+  @State private var review: FenwickSendReview?
+  @State private var discard = false
+  @State private var attempted = false
+  let onSave: (FenwickMailItem) -> Void
+
+  init(inbox: FenwickInbox, original: FenwickMailItem, onSave: @escaping (FenwickMailItem) -> Void) {
+    self.inbox = inbox; self.onSave = onSave
+    _saved = State(initialValue: original); _edit = State(initialValue: FenwickDraftEdit(original))
+  }
+  private var dirty: Bool { edit != FenwickDraftEdit(saved) }
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack {
+        Text("Edit draft").font(.ottoDisplay(24).weight(.semibold))
+        Spacer()
+        Button("Close") { if dirty { discard = true } else { dismiss() } }.disabled(busy)
+      }
+      Text("From inbox: \(saved.account)").font(.ottoDisplay(13))
+      Text("Plain-text reply · Saving updates your mailbox draft and does not send.")
+        .font(.ottoDisplay(12)).foregroundStyle(palette.muted)
+      Grid(alignment: .leading) {
+        GridRow { Text("To"); TextField("To", text: $edit.to).accessibilityLabel("Draft To") }
+        GridRow { Text("Cc"); TextField("Cc", text: $edit.cc).accessibilityLabel("Draft Cc") }
+        GridRow { Text("Bcc"); TextField("Bcc", text: $edit.bcc).accessibilityLabel("Draft Bcc") }
+        GridRow { Text("Subject"); TextField("Subject", text: $edit.subject).accessibilityLabel("Draft subject") }
+      }.textFieldStyle(.roundedBorder).disabled(busy || attempted)
+      Text("Message").font(.ottoDisplay(13))
+      TextEditor(text: $edit.body).font(.ottoDisplay(14)).frame(minHeight: 220)
+        .accessibilityLabel("Draft message").disabled(busy || attempted)
+      if let status { Text(verbatim: status).font(.ottoDisplay(13)).textSelection(.enabled) }
+      HStack {
+        Text(dirty ? "Unsaved changes" : "Saved draft").font(.ottoDisplay(12)).foregroundStyle(palette.muted)
+        if busy { ProgressView().controlSize(.small) }
+        Spacer()
+        Button("Save draft") {
+          busy = true; status = nil
+          Task {
+            defer { busy = false }
+            do {
+              let value = try await inbox.saveDraft(saved, edit: edit)
+              saved = value; edit = FenwickDraftEdit(value); onSave(value)
+              status = "Saved and verified in your inbox. Nothing sent."
+            } catch { status = error.localizedDescription }
+          }
+        }.disabled(busy || !dirty || attempted)
+        Button("Review send…") {
+          busy = true; status = nil
+          Task {
+            defer { busy = false }
+            do { review = try await inbox.prepareSend(saved) }
+            catch { status = error.localizedDescription }
+          }
+        }.disabled(busy || dirty || attempted)
+      }
+      Text("Save changes before reviewing a send. Attachments are not supported here. No permanent-delete action is available.")
+        .font(.ottoDisplay(11)).foregroundStyle(palette.muted)
+    }.padding(24).frame(width: 740, height: 640)
+      .foregroundStyle(palette.paper).background(palette.workspaceSurface)
+      .interactiveDismissDisabled(dirty || busy)
+      .onDisappear { inbox.cancelSendReview() }
+      .confirmationDialog("Discard unsaved edits?", isPresented: $discard) {
+        Button("Discard edits", role: .destructive) { dismiss() }
+        Button("Keep editing", role: .cancel) {}
+      }
+      .sheet(item: $review, onDismiss: { inbox.cancelSendReview() }) { approval in
+        VStack(alignment: .leading, spacing: 16) {
+          Text("Approve this email?").font(.ottoDisplay(24).weight(.semibold))
+          Text("Sending delivers the exact message below immediately. Review every recipient, including Bcc.")
+            .font(.ottoDisplay(13))
+          ScrollView {
+            Text(verbatim: approval.text).font(.ottoDisplay(14)).textSelection(.enabled)
+              .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+          }
+          Text("The original draft will be retained. This view blocks another send of that draft, including after restart. No deletion is performed.")
+            .font(.ottoDisplay(12)).foregroundStyle(palette.muted)
+          HStack {
+            Button("Cancel — keep draft", role: .cancel) { inbox.cancelSendReview(); review = nil }
+              .keyboardShortcut(.cancelAction)
+            Spacer()
+            Button("Approve and send now", role: .destructive) {
+              // Only this deliberate button enters the confirmed path. No default Return shortcut.
+              busy = true; attempted = true
+              Task {
+                do {
+                  try await inbox.approveSend(approval)
+                  status = "Sent successfully. The original draft is retained; sending it again here is blocked."
+                } catch { status = error.localizedDescription }
+                busy = false; review = nil
+              }
+            }
+          }.disabled(busy)
+        }.padding(24).frame(width: 700, height: 600)
+          .foregroundStyle(palette.paper).background(palette.workspaceSurface)
+          .interactiveDismissDisabled(busy)
+      }
   }
 }

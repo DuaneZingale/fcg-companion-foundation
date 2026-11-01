@@ -242,3 +242,41 @@ now uses isolated 1Password CLI configuration, an explicit cache-free read, and 
 existing service account and secret reference. Global CLI/account configuration is unchanged.
 Foundation's explicit Refresh recovered successfully in the app. No raw credential was
 written into the app configuration, repository, report cache or diagnostic receipts.
+
+## Native draft editing and send approval — 2026-11-01
+
+The inbox review sheet now opens **Edit and approve draft** for an existing supported draft.
+The editor exposes To, Cc, Bcc, subject and plain-text body; saving updates the mailbox draft
+and reads it back. It preserves the provider reply reference when available. Drafts with
+attachments or a custom Reply-To remain read-only so these are never silently dropped.
+Closing with unsaved edits requires choosing discard or continuing to edit.
+
+**Review send…** is unavailable until edits are saved. It re-reads the draft and displays an
+immutable exact-content approval with the sender inbox, every recipient, subject, full body,
+and reply reference. If no reply reference is available, the approval states that the email
+will be sent as a new message. Only **Approve and send now** invokes the existing guarded
+`nylas.send` tool with human confirmation. There is no default Return-key send action.
+Cancelling consumes the pending review; changing a draft requires fresh review. Approvals
+expire after ten minutes and are rechecked against live content immediately before sending.
+Nylas does not provide an atomic compare-and-swap for draft updates, so the stale-read check
+cannot lock out a concurrent mail-client edit during the final network request. Sending uses
+an immutable explicit payload, never mutable draft-by-ID contents.
+
+An exclusive private on-disk attempt record is reserved before sending. Duplicate approval,
+uncertain delivery, and application restart cannot silently repeat that draft's send. Sent
+message IDs are recorded on confirmed success; missing receipts or failures require checking
+Sent. This surface blocks further editing/sending of a draft with an attempt record. The
+original draft is retained, which is stated on the approval card. No draft cleanup or permanent
+delete route was added. Existing permanent-delete approval checks and Full Access behavior are
+unchanged. The cloud schedule, five-inbox bindings, and 24-hour scope are unchanged.
+
+Validation: 16 focused tests passed across native inbox review, draft editing/approval, and
+existing Nylas safeguards. These cover cancelled/stale approval, external draft changes,
+exact send payload and reply identity, duplicate/replayed sends, durable restart protection,
+uncertain transport, unsupported attachments and hidden recipients, and unapproved send/delete
+denial in Full Access. In the installed app, the existing synthetic DO NOT SEND draft was
+edited, saved and read back; Review send stayed disabled while edits were unsaved. The full
+approval was visually inspected and cancelled. The original draft was restored and verified
+against its prior mailbox content. The unsaved-close confirmation was also exercised. No real
+send or permanent deletion was performed; delivery is covered by a simulated provider test,
+not claimed as live-tested. Original profile/permission/connection configuration was preserved.
